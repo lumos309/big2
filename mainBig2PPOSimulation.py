@@ -33,7 +33,7 @@ class big2PPOSimulation(object):
         self.playerNetworks[1] = self.playerNetworks[2] = self.playerNetworks[3] = self.playerNetworks[4] = self.trainingNetwork
         self.trainOnPlayer = [True, True, True, True]
         
-        tf.global_variables_initializer().run(session=sess)
+        tf.compat.v1.global_variables_initializer().run(session=sess)
         
         #environment
         self.vectorizedGame = vectorizedBig2Games(nGames)
@@ -201,10 +201,10 @@ class big2PPOSimulation(object):
 if __name__ == "__main__":
     import time
     
-    with tf.Session() as sess:
+    with tf.compat.v1.Session() as sess:
         mainSim = big2PPOSimulation(sess, nGames=64, nSteps=20, learningRate = 0.00025, clipRange = 0.2)
         start = time.time()
-        mainSim.train(1000000000)
+        mainSim.train(100000)
         end = time.time()
         print("Time Taken: %f" % (end-start))
         
