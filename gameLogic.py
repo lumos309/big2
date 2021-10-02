@@ -445,4 +445,3 @@ class handsAvailable:
                             self.cards[self.cHand[i+3]].inFourOfAKind = 1            
         
         
-    

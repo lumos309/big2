@@ -24,7 +24,7 @@ def fc(x, scope, nh, *, init_scale=1.0, init_bias=0.0):
     with tf.compat.v1.variable_scope(scope):
         nin = x.get_shape()[1]#.value
         w = tf.compat.v1.get_variable("w", [nin, nh], initializer=ortho_init(init_scale))
-        b = tf.compat.v1.get_variable("b", [nh], initializer=tf.constant_initializer(init_bias))
+        b = tf.compat.v1.get_variable("b", [nh], initializer=tf.compat.v1.constant_initializer(init_bias))
         return tf.matmul(x, w)+b
 
 class PPONetwork(object):
@@ -48,8 +48,8 @@ class PPONetwork(object):
         availPi = tf.add(pi, available_moves)    
         
         def sample():
-            u = tf.compat.v1.random_uniform(tf.shape(availPi))
-            return tf.argmax(availPi - tf.compat.v1.log(-tf.compat.v1.log(u)), axis=-1)
+            u = tf.compat.v1.random_uniform(tf.shape(input=availPi))
+            return tf.argmax(input=availPi - tf.compat.v1.log(-tf.compat.v1.log(u)), axis=-1)
         
         a0 = sample()
         el0in = tf.exp(availPi - tf.compat.v1.reduce_max(availPi, axis=-1, keep_dims=True))
@@ -142,7 +142,7 @@ class PPOModel(object):
         loss = pg_loss + vf_coef*vf_loss - ent_coef*entropyLoss
         
         params = network.params
-        grads = tf.gradients(loss, params)
+        grads = tf.gradients(ys=loss, xs=params)
         if max_grad_norm is not None:
             grads, grad_norm = tf.clip_by_global_norm(grads, max_grad_norm)
         grads = list(zip(grads, params))

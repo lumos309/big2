@@ -190,7 +190,7 @@ class big2PPOSimulation(object):
                     
             if needToReset == 1:
                 self.trainingNetwork.loadParams(currParams)
-            
+            print(update)
             if update % self.saveEvery == 0:
                 name = "modelParameters" + str(update)
                 self.trainingNetwork.saveParams(name)
@@ -204,9 +204,8 @@ if __name__ == "__main__":
     with tf.compat.v1.Session() as sess:
         mainSim = big2PPOSimulation(sess, nGames=64, nSteps=20, learningRate = 0.00025, clipRange = 0.2)
         start = time.time()
-        mainSim.train(100000)
+        mainSim.train(1000000)
         end = time.time()
         print("Time Taken: %f" % (end-start))
-        
         
         

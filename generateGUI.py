@@ -16,7 +16,7 @@ outDim = 1695
 entCoef = 0.01
 valCoef = 0.5
 maxGradNorm = 0.5
-sess = tf.Session()
+sess = tf.compat.v1.Session()
 #networks for players
 playerNetworks = {}
 playerNetworks[1] = PPONetwork(sess, inDim, outDim, "p1Net")
@@ -30,7 +30,7 @@ playerModels[3] = PPOModel(sess, playerNetworks[3], inDim, outDim, entCoef, valC
 playerModels[4] = PPOModel(sess, playerNetworks[4], inDim, outDim, entCoef, valCoef, maxGradNorm)
 
 
-tf.global_variables_initializer().run(session=sess)
+tf.compat.v1.global_variables_initializer().run(session=sess)
 
 #by default load current best
 params = joblib.load("modelParameters136500")
