@@ -20,7 +20,7 @@ def sf01(arr):
 
 class big2PPOSimulation(object):
     
-    def __init__(self, sess, *, inpDim = 412, nGames = 8, nSteps = 20, nMiniBatches = 4, nOptEpochs = 5, lam = 0.95, gamma = 0.995, ent_coef = 0.01, vf_coef = 0.5, max_grad_norm = 0.5, minLearningRate = 0.000001, learningRate, clipRange, saveEvery = 500, oppSamplingRate = 0.0):
+    def __init__(self, sess, round, inpDim = 412, nGames = 8, nSteps = 20, nMiniBatches = 4, nOptEpochs = 5, lam = 0.95, gamma = 0.995, ent_coef = 0.01, vf_coef = 0.5, max_grad_norm = 0.5, minLearningRate = 0.000001, learningRate, clipRange, saveEvery = 500, oppSamplingRate = 0.0):
         
         #network/model for training
         self.trainingNetwork = PPONetwork(sess, inpDim, 1695, "trainNet")
@@ -84,15 +84,29 @@ class big2PPOSimulation(object):
         self.losses = []
         
         # opponent sampling
-        self.pastOpponentScores = []
-        self.osOpponents = [self.trainingNetwork for i in range(self.nGames)]
-        self.osPlayerNumbers = self.osVectorizedGame.getCurrStates()[0]
+        self.osQualityScores = joblib.load('osQualityScores') if round > 0 else []
+        self.osOpponentPool = joblib.load('osOpponentPool') if round > 0 else[]
+        self.osOpponent = PPONetwork(sess, inpDim, 1695, "osNet")
         
-    def addNewPastOpponent(self):
-        self.pastOpponentScores.append(max(self.pastOpponentScores))
+        self.osOpponentIndex = 0
+        self.osPlayerNumbers = self.osVectorizedGame.getCurrStates()[0]
+        self.osCurrOppScore = 0.
+        self.osCurrOppGamesPlayed = 0
+        
+    # update quality score when past opponent loses a playout 
+    def updatePastOpponentScore(self, score):
+        self.osQualityScores[self.osOpponentIndex] -= self.eta / ((self.osOpponentIndex + 1) * tf.math.exp(self.osQualityScores[self.osOpponentIndex]))
 
-    def updatePastOpponent(self):
-        return None
+    def selectNewPastOpponent(self):
+        scores = tf.nn.softmax(self.osQualityScores)
+        opponentIndex = tf.random.categorical([scores], 1)[0].eval()[0]
+        opponentName = self.osOpponentPool[opponentIndex]
+        params = joblib.load(opponentName)
+        # with tf.compat.v1.variable_scope("os_opponent", reuse=tf.compat.v1.AUTO_REUSE) as scope:
+        #opponent = PPONetwork(self.sess, 412, 1695, str(time.time()))
+        self.osOpponent.loadParams(params)
+        self.osOpponentIndex = opponentIndex
+        print('Selecting opponent %d of %d' % (opponentIndex + 1, len(self.osOpponentPool)))
     
     '''
     Given the player (1-4) that starts a given game
@@ -153,7 +167,8 @@ class big2PPOSimulation(object):
                     mb_dones[-4][i] = True
                     self.epInfos.append(infos[i])
                     self.gamesDone += 1
-                    print("Game %d finished. Lasted %d turns" % (self.gamesDone, infos[i]['numTurns']))
+                    if self.gamesDone % 1000 == 0:
+                        print("Game %d finished. Lasted %d turns" % (self.gamesDone, infos[i]['numTurns']))
         self.prevObs = mb_obs[endLength:]
         self.prevGos = mb_pGos[endLength:]
         self.prevRewards = mb_rewards[endLength:]
@@ -218,23 +233,16 @@ class big2PPOSimulation(object):
                     
             actions, values, neglogpacs = [], [], []
             overallTurnCount = (step % 4) + 1
-            for i in range(self.nGames):
-                a, v, n = [], [], []
 
+            for i in range(self.nGames):
                 '''
                 If player num for this game is -1, then the game terminated the previous step.
                 Find turn number in new game that corresponds to overall turn 1.
                 '''
                 if self.osPlayerNumbers[i] == -1:
                     self.osPlayerNumbers[i] = self.getPlayerNumberFromStartingTurn(currGos[i], overallTurnCount)
-                
-                if currGos[i] == self.osPlayerNumbers[i]:
-                    a, v, n = self.trainingNetwork.step([currStates[i]], [currAvailAcs[i]])
-                else:
-                    a, v, n = self.osOpponents[i].step([currStates[i]], [currAvailAcs[i]])
-                actions.append(a[0])
-                values.append(v[0])
-                neglogpacs.append(n[0])
+
+            actions, values, neglogpacs = self.trainingNetwork.step(currStates, currAvailAcs) if overallTurnCount == 0 else self.osOpponent.step(currStates, currAvailAcs)
 
             rewards, dones, infos = self.osVectorizedGame.step(actions)
             if overallTurnCount == 1: # only append observrations for player 1, i.e., training agent
@@ -259,7 +267,8 @@ class big2PPOSimulation(object):
 
                     self.epInfos.append(infos[i])
                     self.gamesDone += 1
-                    print("Game %d (os) finished. Lasted %d turns" % (self.gamesDone, infos[i]['numTurns']))
+                    if self.gamesDone % 1000 == 0:
+                        print("Game %d (os) finished. Lasted %d turns" % (self.gamesDone, infos[i]['numTurns']))
         self.osPrevObs = mb_obs[endLength:]
         self.osPrevGos = mb_pGos[endLength:]
         self.osPrevRewards = mb_rewards[endLength:]
@@ -296,15 +305,16 @@ class big2PPOSimulation(object):
 
         nUpdates = nTotalSteps // (self.nGames * self.nSteps)
         
+        isTrainingWithOs = False
+
         for update in range(nUpdates):
-            print('update: %d' % (update))
             alpha = 1.0 - update/nUpdates
             lrnow = self.learningRate * alpha
             if lrnow < self.minLearningRate:
                 lrnow = self.minLearningRate
             cliprangenow = self.clipRange * alpha
             
-            states, availAcs, returns, actions, values, neglogpacs = self.runOs()
+            states, availAcs, returns, actions, values, neglogpacs = self.runOs() if isTrainingWithOs else self.run()
             
             batchSize = states.shape[0]
             self.totTrainingSteps += batchSize
@@ -339,6 +349,34 @@ class big2PPOSimulation(object):
                 joblib.dump(self.losses,"losses.pkl")
                 joblib.dump(self.epInfos, "epInfos.pkl")
 
+                self.osOpponentPool.append(name)
+                # if self.osOpponent == None:
+                #     # first past opponent added - set initial opponents to be this opponent
+                #     pastOppNetwork = PPONetwork(sess, 412, 1695, str(update))
+                #     pastOppNetwork.loadParams(self.trainingNetwork.getParams())
+                #     self.osOpponent = pastOppNetwork
+                #     self.osOpponentIndex = 0
+                self.osQualityScores.append(tf.reduce_max(self.osQualityScores).eval() if len(self.osQualityScores) > 0 else 0.)
+            
+            # handle opponent sampling
+            if update % (self.saveEvery / (1 - self.oppSamplingRate)) == 0:
+                isTrainingWithOs = False
+            elif (update + (self.saveEvery * (self.oppSamplingRate / (1 - self.oppSamplingRate)))) % (self.saveEvery / (1 - self.oppSamplingRate)) == 0:
+                isTrainingWithOs = True
+            if isTrainingWithOs and update % 10 == 0:
+                print('Update: %d' % (update))
+                if self.osCurrOppGamesPlayed > 0:
+                    oppScore = self.osCurrOppScore / self.osCurrOppGamesPlayed
+                    if oppScore < 0:
+                        self.updatePastOpponentScore(oppScore)
+                # print("Sampled opponent quality scores:")
+                # # ???
+                # print(list(map(lambda x: "{:.2f}".format(x), self.osQualityScores[:-100] if len(self.osQualityScores) > 100 else self.osQualityScores)))
+                self.selectNewPastOpponent()
+            
+            joblib.dump(self.osOpponentPool, 'osOpponentPool')
+            joblib.dump(self.osQualityScores, 'osQualityScores')
+
     
 if __name__ == "__main__":
     import time
@@ -349,10 +387,22 @@ if __name__ == "__main__":
     )
     config.gpu_options.allow_growth = True
     
+    
+    # totalSteps = 1000000000
+
+    # nGames = 64
+    # nSteps = 20
+    # updatesPerRound = 10
+
+    # stepsPerRound = nGames * nSteps * updatesPerRound
+    # nRounds = int(totalSteps / stepsPerRound)
+
+    # for round in range(nRounds):
+    
     with tf.compat.v1.Session(config=config) as sess:
-        mainSim = big2PPOSimulation(sess, nGames=64, nSteps=20, learningRate = 0.00025, clipRange = 0.2, oppSamplingRate = 0.2)
+        mainSim = big2PPOSimulation(sess, round, nGames=64, nSteps=20, learningRate = 0.00025, clipRange = 0.2, oppSamplingRate = 0.2, saveEvery=80)
         start = time.time()
-        mainSim.train(100000)
+        mainSim.train(100000000)
         end = time.time()
         print("Time Taken: %f" % (end-start))
         
