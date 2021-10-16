@@ -3,6 +3,8 @@ import numpy as np
 #from stable_baselines.a2c.run_atari import fc
 import joblib
 
+run_opts = tf.compat.v1.RunOptions(report_tensor_allocations_upon_oom = True)
+
 def ortho_init(scale=1.0):
     def _ortho_init(shape, dtype, partition_info=None):
         #lasagne ortho init for tf
@@ -59,11 +61,11 @@ class PPONetwork(object):
         neglogpac = -tf.compat.v1.log(tf.compat.v1.reduce_sum(tf.multiply(p0in, onehot), axis=-1))
         
         def step(obs, availAcs):
-            a, v, neglogp = sess.run([a0, vf, neglogpac], {X:obs, available_moves:availAcs})
+            a, v, neglogp = sess.run([a0, vf, neglogpac], {X:obs, available_moves:availAcs}, options=run_opts)
             return a, v, neglogp
             
         def value(obs, availAcs):
-            return sess.run(vf, {X:obs, available_moves:availAcs})
+            return sess.run(vf, {X:obs, available_moves:availAcs}, options=run_opts)
         
         self.availPi = availPi
         self.neglogpac = neglogpac
@@ -76,7 +78,7 @@ class PPONetwork(object):
         self.params = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.TRAINABLE_VARIABLES, scope=self.name)
         
         def getParams():
-            return sess.run(self.params)
+            return sess.run(self.params, options=run_opts)
         
         self.getParams = getParams
         
@@ -84,12 +86,12 @@ class PPONetwork(object):
             restores = []
             for p, loadedP in zip(self.params, paramsToLoad):
                 restores.append(p.assign(loadedP))
-            sess.run(restores)
+            sess.run(restores, options=run_opts)
             
         self.loadParams = loadParams
         
         def saveParams(path):
-            modelParams = sess.run(self.params)
+            modelParams = sess.run(self.params, options=run_opts)
             joblib.dump(modelParams, path)
             
         self.saveParams = saveParams
@@ -120,7 +122,7 @@ class PPOModel(object):
         neglogpac = -tf.compat.v1.log(tf.compat.v1.reduce_sum(tf.multiply(p0, oneHotActions), axis=-1))
         
         def neglogp(state, actions, index):
-            return sess.run(neglogpac, {network.X: state, network.available_moves: actions, ACTIONS: index})
+            return sess.run(neglogpac, {network.X: state, network.available_moves: actions, ACTIONS: index}, options=run_opts)
         
         self.neglogp = neglogp
         
@@ -154,6 +156,6 @@ class PPOModel(object):
             advs = (advs-advs.mean()) / (advs.std() + 1e-8)
             inputMap = {network.X: observations, network.available_moves: availableActions, ACTIONS: actions, ADVANTAGES: advs, RETURNS: returns,
                         OLD_VAL_PRED: values, OLD_NEG_LOG_PROB_ACTIONS: neglogpacs, LEARNING_RATE: lr, CLIP_RANGE: cliprange}
-            return sess.run([pg_loss, vf_loss, entropyLoss, _train], inputMap)[:-1]
+            return sess.run([pg_loss, vf_loss, entropyLoss, _train], inputMap, options=run_opts)[:-1]
         
         self.train = train

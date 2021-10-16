@@ -6,6 +6,13 @@ import random
 import math
 from multiprocessing import Process, Pipe
 
+# AUXILIARY NETWORK STATE INDICES
+# 0-51: player's hand
+# opponent hand state size: 87
+# Within each opponent hand:
+#   0-51: cards played
+#   
+
 def convertAvailableActions(availAcs):
     #convert from (1,0,0,1,1...) to (0, -math.inf, -math.inf, 0,0...) etc
     availAcs[np.nonzero(availAcs==0)] = -math.inf
@@ -77,6 +84,18 @@ class big2Game:
         self.neuralNetworkInputs[2] = np.zeros((412,), dtype=int)
         self.neuralNetworkInputs[3] = np.zeros((412,), dtype=int)
         self.neuralNetworkInputs[4] = np.zeros((412,), dtype=int)
+
+        self.auxiliaryNetworkInputs = {}
+        self.auxiliaryNetworkInputs[1] = np.zeros((313,), dtype=int)
+        self.auxiliaryNetworkInputs[2] = np.zeros((313,), dtype=int)
+        self.auxiliaryNetworkInputs[3] = np.zeros((313,), dtype=int)
+        self.auxiliaryNetworkInputs[4] = np.zeros((313,), dtype=int)
+
+        for i in range(1, 5):
+            # cards in each player's hand
+            for card in self.currentHands[i]:
+                self.auxiliaryNetworkInputs[i] = 1
+
         nPlayerInd = 22*13
         nnPlayerInd = nPlayerInd + 27
         nnnPlayerInd = nnPlayerInd + 27
@@ -523,6 +542,13 @@ class big2Game:
     def getCurrentState(self):
         return self.playersGo, self.neuralNetworkInputs[self.playersGo].reshape(1,412), convertAvailableActions(self.returnAvailableActions()).reshape(1,1695)
         
+    def getCurrHands(self):
+        currHands = [np.zeros((52,), dtype=int) for i in range(4)]
+        for i in range(4):
+            hand = self.currentHands[i + 1]
+            for card in hand:
+                currHands[i][card] = 1
+        return self.currHands
         
         
 #now create a vectorized environment

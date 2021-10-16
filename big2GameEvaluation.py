@@ -1,7 +1,3 @@
-'''
-V2: Replace cards played 45-52 with 9-52
-'''
-
 #big 2 class
 import enumerateOptions
 import gameLogic
@@ -9,6 +5,15 @@ import numpy as np
 import random
 import math
 from multiprocessing import Process, Pipe
+
+PLAYER_HAND_STATE_SIZE = 22*13
+
+# AUXILIARY NETWORK STATE INDICES
+# 0-51: player's hand
+# opponent hand state size: 87
+# Within each opponent hand:
+#   0-51: cards played
+#   
 
 def convertAvailableActions(availAcs):
     #convert from (1,0,0,1,1...) to (0, -math.inf, -math.inf, 0,0...) etc
@@ -51,7 +56,7 @@ class big2Game:
         self.currentHands[2] = np.sort(shuffledDeck[13:26])
         self.currentHands[3] = np.sort(shuffledDeck[26:39])
         self.currentHands[4] = np.sort(shuffledDeck[39:52])
-        self.cardsPlayed = np.zeros((4,52), dtype=int)
+        self.cardsPlayed = np.zeros((52), dtype=int)
         #who has 3D - this gets played
         for i in range(52):
             if shuffledDeck[i] == 1:
@@ -66,7 +71,7 @@ class big2Game:
         else:
             whoHas3D = 4
         self.currentHands[whoHas3D] = self.currentHands[whoHas3D][1:]
-        self.cardsPlayed[whoHas3D-1][0] = 1
+        self.cardsPlayed[0] = 1
         self.goIndex = 1
         self.handsPlayed = {}
         self.handsPlayed[self.goIndex] = handPlayed([1],whoHas3D)
@@ -77,12 +82,23 @@ class big2Game:
         self.passCount = 0
         self.control = 0
         self.neuralNetworkInputs = {}
-        self.neuralNetworkInputs[1] = np.zeros((440,), dtype=int)
-        self.neuralNetworkInputs[2] = np.zeros((440,), dtype=int)
-        self.neuralNetworkInputs[3] = np.zeros((440,), dtype=int)
-        self.neuralNetworkInputs[4] = np.zeros((440,), dtype=int)
+        self.neuralNetworkInputs[1] = np.zeros((412,), dtype=int)
+        self.neuralNetworkInputs[2] = np.zeros((412,), dtype=int)
+        self.neuralNetworkInputs[3] = np.zeros((412,), dtype=int)
+        self.neuralNetworkInputs[4] = np.zeros((412,), dtype=int)
 
-        nPlayerInd = 22*13
+        self.auxiliaryNetworkInputs = {}
+        self.auxiliaryNetworkInputs[1] = np.zeros((313,), dtype=int)
+        self.auxiliaryNetworkInputs[2] = np.zeros((313,), dtype=int)
+        self.auxiliaryNetworkInputs[3] = np.zeros((313,), dtype=int)
+        self.auxiliaryNetworkInputs[4] = np.zeros((313,), dtype=int)
+
+        for i in range(1, 5):
+            # cards in each player's hand
+            for card in self.currentHands[i]:
+                self.auxiliaryNetworkInputs[i] = 1
+
+        nPlayerInd = PLAYER_HAND_STATE_SIZE
         nnPlayerInd = nPlayerInd + 27
         nnnPlayerInd = nnPlayerInd + 27
         #initialize number of cards
@@ -102,7 +118,7 @@ class big2Game:
     def fillNeuralNetworkHand(self,player):
         handOptions = gameLogic.handsAvailable(self.currentHands[player])
         sInd = 0
-        self.neuralNetworkInputs[player][sInd:22*13] = 0
+        self.neuralNetworkInputs[player][sInd:PLAYER_HAND_STATE_SIZE] = 0
         for i in range(len(self.currentHands[player])):
             value = handOptions.cards[self.currentHands[player][i]].value
             suit = handOptions.cards[self.currentHands[player][i]].suit
@@ -129,7 +145,7 @@ class big2Game:
     
     def updateNeuralNetworkPass(self, cPlayer):
         #this is a bit of a mess tbh, some things are unnecessary.
-        phInd = 22*13 + 27 + 27 + 27 + 44
+        phInd = PLAYER_HAND_STATE_SIZE + 27 + 27 + 27 + 16
         nPlayer = cPlayer-1
         if nPlayer == 0:
             nPlayer = 4
@@ -172,7 +188,7 @@ class big2Game:
             nnnPlayer = 4
         nCards = self.currentHands[cPlayer].size
         cardsOfNote = np.intersect1d(prevHand, np.arange(45,53))
-        nPlayerInd = 22*13
+        nPlayerInd = PLAYER_HAND_STATE_SIZE
         nnPlayerInd = nPlayerInd + 27
         nnnPlayerInd = nnPlayerInd + 27
         #next player
@@ -189,7 +205,7 @@ class big2Game:
             self.neuralNetworkInputs[nnPlayer][nnPlayerInd+13+(val-45)] = 1
             self.neuralNetworkInputs[nnnPlayer][nnnPlayerInd+13+(val-45)] = 1
         #prevHand
-        phInd = nnnPlayerInd + 27 + 44
+        phInd = nnnPlayerInd + 27 + 16
         self.neuralNetworkInputs[nPlayer][phInd:] = 0
         self.neuralNetworkInputs[nnPlayer][phInd:] = 0
         self.neuralNetworkInputs[nnnPlayer][phInd:] = 0
@@ -257,7 +273,7 @@ class big2Game:
                 self.neuralNetworkInputs[nPlayer][phInd+25] = 1
                 self.neuralNetworkInputs[nnPlayer][phInd+25] = 1
                 self.neuralNetworkInputs[nnnPlayer][phInd+25] = 1
-        else: # previous hand is a single
+        else:
             value = int(gameLogic.cardValue(prevHand[0]))
             suit = prevHand[0] % 4
             self.neuralNetworkInputs[nPlayer][phInd+18] = 1
@@ -283,13 +299,15 @@ class big2Game:
             self.neuralNetworkInputs[nnPlayer][phInd+16] = 1
             self.neuralNetworkInputs[nnnPlayer][phInd+16] = 1
         #general - common to all hands.
-        cardsRecord = np.intersect1d(prevHand, np.arange(9,53))
+        for card in prevHand:
+            self.cardsPlayed[card - 1] = 0
+        cardsRecord = np.intersect1d(prevHand, np.arange(37,53))
         endInd = nnnPlayerInd + 27
         for val in cardsRecord:
-            self.neuralNetworkInputs[1][endInd+val] = 1
-            self.neuralNetworkInputs[2][endInd+val] = 1
-            self.neuralNetworkInputs[3][endInd+val] = 1
-            self.neuralNetworkInputs[4][endInd+val] = 1
+            self.neuralNetworkInputs[1][endInd+(val-37)] = 1
+            self.neuralNetworkInputs[2][endInd+(val-37)] = 1
+            self.neuralNetworkInputs[3][endInd+(val-37)] = 1
+            self.neuralNetworkInputs[4][endInd+(val-37)] = 1
         #no passes.
         self.neuralNetworkInputs[nPlayer][phInd+26] = 1
         self.neuralNetworkInputs[nnPlayer][phInd+26] = 1
@@ -324,7 +342,7 @@ class big2Game:
         else:
             handToPlay = self.currentHands[self.playersGo][enumerateOptions.inverseFiveCardIndices[option]]
         for i in handToPlay:
-            self.cardsPlayed[self.playersGo-1][i-1] = 1
+            self.cardsPlayed[i-1] = 1
         self.handsPlayed[self.goIndex] = handPlayed(handToPlay, self.playersGo)
         self.control = 0
         self.goIndex += 1
@@ -526,8 +544,18 @@ class big2Game:
         return reward, done, info
     
     def getCurrentState(self):
-        return self.playersGo, self.neuralNetworkInputs[self.playersGo].reshape(1, 440), convertAvailableActions(self.returnAvailableActions()).reshape(1,1695)
-        
+        return self.playersGo, self.neuralNetworkInputs[self.playersGo].reshape(1,412), convertAvailableActions(self.returnAvailableActions()).reshape(1,1695)
+
+    def getCurrentStateInputV2(self):
+        # replace played state for cards 37-52 with cards 1-44
+        nnInputs = self.neuralNetworkInputs[self.playersGo]
+        ind = PLAYER_HAND_STATE_SIZE + 27*3
+        cardsPlayed = self.cardsPlayed[8:52]
+
+        nnInputs = np.concatenate((nnInputs[:ind], cardsPlayed, nnInputs[ind+16:]))
+        return self.playersGo, nnInputs.reshape(1,440), convertAvailableActions(self.returnAvailableActions()).reshape(1,1695)
+
+
     def getCurrHands(self):
         currHands = [np.zeros((52,), dtype=int) for i in range(4)]
         for i in range(4):
@@ -552,6 +580,9 @@ def worker(remote, parent_remote):
             remote.send((pGo,cState))
         elif cmd == 'getCurrState':
             pGo, cState, availAcs = game.getCurrentState()
+            remote.send((pGo, cState, availAcs))
+        elif cmd == 'getCurrStateInputV2':
+            pGo, cState, availAcs = game.getCurrentStateInputV2()
             remote.send((pGo, cState, availAcs))
         elif cmd == 'close':
             remote.close()
@@ -590,9 +621,9 @@ class vectorizedBig2Games(object):
         self.step_async(actions)
         return self.step_wait()
         
-    def currStates_async(self):
+    def currStates_async(self, version=None):
         for remote in self.remotes:
-            remote.send(('getCurrState', None))
+            remote.send(('getCurrState', None)) if version == None else remote.send(('getCurrState' + version, None))
         self.waiting = True
         
     def currStates_wait(self):
@@ -603,6 +634,10 @@ class vectorizedBig2Games(object):
     
     def getCurrStates(self):
         self.currStates_async()
+        return self.currStates_wait()
+    
+    def getCurrStatesInputV2(self):
+        self.currStates_async("InputV2")
         return self.currStates_wait()
     
     def close(self):

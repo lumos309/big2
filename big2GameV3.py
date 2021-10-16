@@ -1,5 +1,5 @@
 '''
-V2: Replace cards played 45-52 with 9-52
+V2: Replace cards played 45-52 with 1-44
 '''
 
 #big 2 class
@@ -283,7 +283,7 @@ class big2Game:
             self.neuralNetworkInputs[nnPlayer][phInd+16] = 1
             self.neuralNetworkInputs[nnnPlayer][phInd+16] = 1
         #general - common to all hands.
-        cardsRecord = np.intersect1d(prevHand, np.arange(9,53))
+        cardsRecord = np.intersect1d(prevHand, np.arange(1,45))
         endInd = nnnPlayerInd + 27
         for val in cardsRecord:
             self.neuralNetworkInputs[1][endInd+val] = 1

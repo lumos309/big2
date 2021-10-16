@@ -8,7 +8,7 @@ import enumerateOptions
 from PPONetwork import PPONetwork, PPOModel
 import tensorflow as tf
 import joblib
-
+tf.compat.v1.disable_eager_execution()
 mainGame = big2Game.big2Game()
 
 inDim = 412
@@ -321,6 +321,9 @@ def sampleFromNetwork():
     global currSampledOption
     
     go, state, actions = mainGame.getCurrentState()
+    print(go)
+    print(state)
+    print(actions)
     (a, v, nlp) = playerNetworks[go].step(state, actions)
     currSampledOption = a[0]
     if a==enumerateOptions.passInd:

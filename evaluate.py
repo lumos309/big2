@@ -1,14 +1,15 @@
 import numpy as np
-import big2Game
+import big2GameEvaluation
 import gameLogic
 import enumerateOptions
+#from PPONetworkNew import PPONetwork, PPOModel
 from PPONetwork import PPONetwork, PPOModel
 import tensorflow as tf
 import joblib
 
 tf.compat.v1.disable_eager_execution()
 
-mainGame = big2Game.big2Game()
+mainGame = big2GameEvaluation.big2Game()
 
 inDim = 412
 outDim = 1695
@@ -18,22 +19,22 @@ maxGradNorm = 0.5
 sess = tf.compat.v1.Session()
 #networks for players
 playerNetworks = {}
-playerNetworks[1] = PPONetwork(sess, inDim, outDim, "p1Net")
-playerNetworks[2] = PPONetwork(sess, inDim, outDim, "p2Net")
-playerNetworks[3] = PPONetwork(sess, inDim, outDim, "p3Net")
-playerNetworks[4] = PPONetwork(sess, inDim, outDim, "p4Net")
-playerModels = {}
-playerModels[1] = PPOModel(sess, playerNetworks[1], inDim, outDim, entCoef, valCoef, maxGradNorm)
-playerModels[2] = PPOModel(sess, playerNetworks[2], inDim, outDim, entCoef, valCoef, maxGradNorm)
-playerModels[3] = PPOModel(sess, playerNetworks[3], inDim, outDim, entCoef, valCoef, maxGradNorm)
-playerModels[4] = PPOModel(sess, playerNetworks[4], inDim, outDim, entCoef, valCoef, maxGradNorm)
+# playerNetworks[1] = PPONetwork( inDim, outDim, "p1Net")
+# playerNetworks[2] = PPONetwork(inDim, outDim, "p2Net")
+# playerNetworks[3] = PPONetwork(inDim, outDim, "p3Net")
+# playerNetworks[4] = PPONetwork(inDim, outDim, "p4Net")
+playerNetworks[1] = PPONetwork(sess, 412, outDim, "p1Net")
+playerNetworks[2] = PPONetwork(sess,412, outDim, "p2Net")
+playerNetworks[3] = PPONetwork(sess,440, outDim, "p3Net")
+playerNetworks[4] = PPONetwork(sess,440, outDim, "p4Net")
 
-tf.compat.v1.global_variables_initializer().run(session=sess)
+#tf.compat.v1.global_variables_initializer().run(session=sess)
 
 #by default load current best
-params = joblib.load("modelParameters136500")
+params = joblib.load("baselineParameters90000")
 playerNetworks[1].loadParams(params)
 playerNetworks[2].loadParams(params)
+params = joblib.load("inputV2Parameters90000")
 playerNetworks[3].loadParams(params)
 playerNetworks[4].loadParams(params)
 
@@ -43,6 +44,8 @@ def sampleFromNetwork():
     global currSampledOption
     
     go, state, actions = mainGame.getCurrentState()
+    if go == 3 or go == 4:
+        go, state, actions = mainGame.getCurrentStateInputV2()
     (a, v, nlp) = playerNetworks[go].step(state, actions)
     currSampledOption = a[0]
 
@@ -56,13 +59,12 @@ def playSampledOption():
 def playout():
     wins = [0,0,0,0]
     score = [0.0, 0.0, 0.0, 0.0]
-    for i in range(2000):
-        if i % 50 == 0:
-            print(i)
+    for i in range(20000):       
+        if (i % 100) == 0:
+            print("Game %d done" % (i))
         done = False
         while not done:
             sampleFromNetwork()
-        
             global currSampledOption
             if currSampledOption == -1:
                 return

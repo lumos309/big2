@@ -20,11 +20,15 @@ def sf01(arr):
 
 class big2PPOSimulation(object):
     
-    def __init__(self, sess, round, inpDim = 412, nGames = 8, nSteps = 20, nMiniBatches = 4, nOptEpochs = 5, lam = 0.95, gamma = 0.995, ent_coef = 0.01, vf_coef = 0.5, max_grad_norm = 0.5, minLearningRate = 0.000001, learningRate, clipRange, saveEvery = 500, oppSamplingRate = 0.0):
+    def __init__(self, sess, sessConfig=None, startingUpdate = 0, osStartingUpdate = 0, inpDim = 412, nGames = 8, nSteps = 20, nMiniBatches = 4, nOptEpochs = 5, lam = 0.95, gamma = 0.995, ent_coef = 0.01, vf_coef = 0.5, max_grad_norm = 0.5, minLearningRate = 0.000001, learningRate=0.00025, clipRange=0.2, saveEvery = 500, oppSamplingRate = 0.0, eta = 0.1):
         
         #network/model for training
         self.trainingNetwork = PPONetwork(sess, inpDim, 1695, "trainNet")
         self.trainingModel = PPOModel(sess, self.trainingNetwork, inpDim, 1695, ent_coef, vf_coef, max_grad_norm)
+        self.startingUpdate = startingUpdate
+        if startingUpdate > 0:
+            self.trainingNetwork.loadParams(joblib.load('modelParameters' + str(startingUpdate)))
+        self.sessConfig = sessConfig
         
         #player networks which choose decisions - allowing for later on experimenting with playing against older versions of the network (so decisions they make are not trained on).
         self.playerNetworks = {}
@@ -52,6 +56,7 @@ class big2PPOSimulation(object):
         self.clipRange = clipRange
         self.saveEvery = saveEvery
         self.oppSamplingRate = oppSamplingRate
+        self.eta = eta
         
         self.rewardNormalization = 5.0 #divide rewards by this number (so reward ranges from -1.0 to 3.0)
         
@@ -84,9 +89,14 @@ class big2PPOSimulation(object):
         self.losses = []
         
         # opponent sampling
-        self.osQualityScores = joblib.load('osQualityScores') if round > 0 else []
-        self.osOpponentPool = joblib.load('osOpponentPool') if round > 0 else[]
-        self.osOpponent = PPONetwork(sess, inpDim, 1695, "osNet")
+        self.osSess = tf.compat.v1.Session(config=sessConfig)
+        self.osOpponent = PPONetwork(self.osSess, inpDim, 1695, "osNet")
+        self.osOpponentPool = []
+        self.osQualityScores = []
+        if osStartingUpdate > 0:
+            for i in range(osStartingUpdate, startingUpdate, saveEvery):
+                self.osOpponentPool.append("modelParameters" + str(i))
+                self.osQualityScores.append(0.)
         
         self.osOpponentIndex = 0
         self.osPlayerNumbers = self.osVectorizedGame.getCurrStates()[0]
@@ -95,13 +105,20 @@ class big2PPOSimulation(object):
         
     # update quality score when past opponent loses a playout 
     def updatePastOpponentScore(self, score):
-        self.osQualityScores[self.osOpponentIndex] -= self.eta / ((self.osOpponentIndex + 1) * tf.math.exp(self.osQualityScores[self.osOpponentIndex]))
+        # update score in proportion to how badly the opponent performed, i.e. the score
+        scoreUpdateAmount = (self.eta * -score) / ((self.osOpponentIndex + 1) * tf.math.exp(self.osQualityScores[self.osOpponentIndex]))
+        self.osQualityScores[self.osOpponentIndex] -= scoreUpdateAmount
+
 
     def selectNewPastOpponent(self):
         scores = tf.nn.softmax(self.osQualityScores)
         opponentIndex = tf.random.categorical([scores], 1)[0].eval()[0]
         opponentName = self.osOpponentPool[opponentIndex]
         params = joblib.load(opponentName)
+
+        self.osSess.close()
+        self.osSess = tf.compat.v1.Session(config=self.sessConfig)
+        self.osOpponent = PPONetwork(self.osSess, 412, 1695, str(time.time()))
         # with tf.compat.v1.variable_scope("os_opponent", reuse=tf.compat.v1.AUTO_REUSE) as scope:
         #opponent = PPONetwork(self.sess, 412, 1695, str(time.time()))
         self.osOpponent.loadParams(params)
@@ -183,7 +200,7 @@ class big2PPOSimulation(object):
         mb_actions = np.asarray(mb_actions, dtype=np.float32)[:endLength]
         mb_values = np.asarray(mb_values, dtype=np.float32)
         mb_neglogpacs = np.asarray(mb_neglogpacs, dtype=np.float32)[:endLength]
-        mb_dones = np.asarray(mb_dones, dtype=np.bool)
+        mb_dones = np.asarray(mb_dones, dtype=bool)
         # print(self.prevRewards)
         # print(mb_rewards)
         #discount/bootstrap value function with generalized advantage estimation:
@@ -258,12 +275,17 @@ class big2PPOSimulation(object):
             mb_rewards.append(toAppendRewards)
             for i in range(self.nGames):
                 if dones[i] == True:
-                    # Reset turn counter for game [i], and sync turn counter
-                    # on next step depending on which player starts the next game
                     playerNum = self.osPlayerNumbers[i]
+                    reward = rewards[i][playerNum - 1]
+                    
+                    # Reset turn counter for game [i], and sync turn counter
+                    # on next step depending on which player starts the next game                    
                     self.osPlayerNumbers[i] = -1
                     
-                    mb_rewards[-1][i] = rewards[i][playerNum - 1] / self.rewardNormalization
+                    mb_rewards[-1][i] = reward / self.rewardNormalization
+
+                    self.osCurrOppGamesPlayed += 1
+                    self.osCurrOppScore += -reward # if the player wins, the sampled opponent loses and vice versa
 
                     self.epInfos.append(infos[i])
                     self.gamesDone += 1
@@ -283,7 +305,7 @@ class big2PPOSimulation(object):
         mb_actions = np.asarray(mb_actions, dtype=np.float32)[:endLength]
         mb_values = np.asarray(mb_values, dtype=np.float32)
         mb_neglogpacs = np.asarray(mb_neglogpacs, dtype=np.float32)[:endLength]
-        mb_dones = np.asarray(mb_dones, dtype=np.bool)
+        mb_dones = np.asarray(mb_dones, dtype=bool)
         #discount/bootstrap value function with generalized advantage estimation:
         mb_returns = np.zeros_like(mb_rewards)
         mb_advs = np.zeros_like(mb_rewards)
@@ -306,8 +328,14 @@ class big2PPOSimulation(object):
         nUpdates = nTotalSteps // (self.nGames * self.nSteps)
         
         isTrainingWithOs = False
+        
+        startTime = time.time()
 
-        for update in range(nUpdates):
+        for update in range(self.startingUpdate + 1, nUpdates):
+            if (update + 1) % 100 == 0:
+                print("Last 100 updates (at update %d): %f" % (update + 1, time.time()-startTime))
+                startTime = time.time()
+
             alpha = 1.0 - update/nUpdates
             lrnow = self.learningRate * alpha
             if lrnow < self.minLearningRate:
@@ -315,6 +343,7 @@ class big2PPOSimulation(object):
             cliprangenow = self.clipRange * alpha
             
             states, availAcs, returns, actions, values, neglogpacs = self.runOs() if isTrainingWithOs else self.run()
+            # states, availAcs, returns, actions, values, neglogpacs = self.run()
             
             batchSize = states.shape[0]
             self.totTrainingSteps += batchSize
@@ -346,8 +375,8 @@ class big2PPOSimulation(object):
             if update % self.saveEvery == 0:
                 name = "modelParameters" + str(update)
                 self.trainingNetwork.saveParams(name)
-                joblib.dump(self.losses,"losses.pkl")
-                joblib.dump(self.epInfos, "epInfos.pkl")
+                #joblib.dump(self.losses,"losses.pkl")
+                #joblib.dump(self.epInfos, "epInfos.pkl")
 
                 self.osOpponentPool.append(name)
                 # if self.osOpponent == None:
@@ -356,26 +385,30 @@ class big2PPOSimulation(object):
                 #     pastOppNetwork.loadParams(self.trainingNetwork.getParams())
                 #     self.osOpponent = pastOppNetwork
                 #     self.osOpponentIndex = 0
-                self.osQualityScores.append(tf.reduce_max(self.osQualityScores).eval() if len(self.osQualityScores) > 0 else 0.)
+
+                self.osQualityScores.append(tf.reduce_max(self.osQualityScores) if len(self.osQualityScores) > 0 else 0.)
+                #self.osQualityScores.append(0.)
             
             # handle opponent sampling
             if update % (self.saveEvery / (1 - self.oppSamplingRate)) == 0:
                 isTrainingWithOs = False
             elif (update + (self.saveEvery * (self.oppSamplingRate / (1 - self.oppSamplingRate)))) % (self.saveEvery / (1 - self.oppSamplingRate)) == 0:
                 isTrainingWithOs = True
-            if isTrainingWithOs and update % 10 == 0:
+            if isTrainingWithOs and update % 20 == 0:
                 print('Update: %d' % (update))
+                print("os score: " + str(self.osCurrOppScore))
+                print("os games played: " + str(self.osCurrOppGamesPlayed))
                 if self.osCurrOppGamesPlayed > 0:
-                    oppScore = self.osCurrOppScore / self.osCurrOppGamesPlayed
-                    if oppScore < 0:
-                        self.updatePastOpponentScore(oppScore)
-                # print("Sampled opponent quality scores:")
-                # # ???
-                # print(list(map(lambda x: "{:.2f}".format(x), self.osQualityScores[:-100] if len(self.osQualityScores) > 100 else self.osQualityScores)))
+                    if self.osCurrOppScore < 0:
+                        self.updatePastOpponentScore(self.osCurrOppScore / self.osCurrOppGamesPlayed)
+                self.osCurrOppScore = 0
+                self.osCurrOppGamesPlayed = 0
+
+                #if update == 80:
                 self.selectNewPastOpponent()
             
-            joblib.dump(self.osOpponentPool, 'osOpponentPool')
-            joblib.dump(self.osQualityScores, 'osQualityScores')
+            # joblib.dump(self.osOpponentPool, 'osOpponentPool')
+            # joblib.dump(self.osQualityScores, 'osQualityScores')
 
     
 if __name__ == "__main__":
@@ -400,9 +433,21 @@ if __name__ == "__main__":
     # for round in range(nRounds):
     
     with tf.compat.v1.Session(config=config) as sess:
-        mainSim = big2PPOSimulation(sess, round, nGames=64, nSteps=20, learningRate = 0.00025, clipRange = 0.2, oppSamplingRate = 0.2, saveEvery=80)
+        mainSim = big2PPOSimulation(sess, 
+            sessConfig=config, 
+            startingUpdate=90500,
+            osStartingUpdate=0,
+            nGames=64, 
+            nSteps=20, 
+            learningRate = 0.00025, 
+            clipRange = 0.0, 
+            saveEvery=500,
+            # opponent sampling parameters
+            oppSamplingRate = 0.0,
+            eta = 0.1,
+        )
         start = time.time()
-        mainSim.train(100000000)
+        mainSim.train(1000000000)
         end = time.time()
         print("Time Taken: %f" % (end-start))
         
