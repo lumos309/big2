@@ -139,11 +139,14 @@ class big2PPOSimulation(object):
         # print('endlength: %d' % (endLength))
         
         for _ in range(self.nSteps):
+            # get state from env
             currGos, currStates, currAvailAcs = self.vectorizedGame.getCurrStates()
             currStates = np.squeeze(currStates)
             currAvailAcs = np.squeeze(currAvailAcs)
             currGos = np.squeeze(currGos)
             actions, values, neglogpacs = self.trainingNetwork.step(currStates, currAvailAcs)
+
+            # sample from env
             rewards, dones, infos = self.vectorizedGame.step(actions)
             mb_obs.append(currStates.copy())
             mb_pGos.append(currGos)
@@ -306,7 +309,8 @@ class big2PPOSimulation(object):
         nUpdates = nTotalSteps // (self.nGames * self.nSteps)
         
         isTrainingWithOs = False
-
+        
+        # Loop over update amounts
         for update in range(nUpdates):
             alpha = 1.0 - update/nUpdates
             lrnow = self.learningRate * alpha
@@ -314,35 +318,40 @@ class big2PPOSimulation(object):
                 lrnow = self.minLearningRate
             cliprangenow = self.clipRange * alpha
             
+
+            # Sample information from the environment
             states, availAcs, returns, actions, values, neglogpacs = self.runOs() if isTrainingWithOs else self.run()
             
             batchSize = states.shape[0]
-            self.totTrainingSteps += batchSize
-            
+            self.totTrainingSteps += batchSize # update total training steps
             nTrainingBatch = batchSize // self.nMiniBatches
-            
-            currParams = self.trainingNetwork.getParams()
-            
-            mb_lossvals = []
+            currParams = self.trainingNetwork.getParams() # current network params
+            mb_lossvals = [] # minibatch loss vals
             inds = np.arange(batchSize)
+
+            # Train model here (this is the training loop)
             for _ in range(self.nOptEpochs):
                 np.random.shuffle(inds)
                 for start in range(0, batchSize, nTrainingBatch):
                     end = start + nTrainingBatch
-                    mb_inds = inds[start:end]
+                    mb_inds = inds[start:end] # minibatch indices
                     mb_lossvals.append(self.trainingModel.train(lrnow, cliprangenow, states[mb_inds], availAcs[mb_inds], returns[mb_inds], actions[mb_inds], values[mb_inds], neglogpacs[mb_inds]))
             lossvals = np.mean(mb_lossvals, axis=0)
             self.losses.append(lossvals)
             
+
+            # If there is NAN in params, need to reset
             newParams = self.trainingNetwork.getParams()
             needToReset = 0
-            for param in newParams:
+            for param in newParams: 
                 if np.sum(np.isnan(param)) > 0:
                     needToReset = 1
                     
             if needToReset == 1:
                 self.trainingNetwork.loadParams(currParams)
             
+
+            # just need to save the model
             if update % self.saveEvery == 0:
                 name = "modelParameters" + str(update)
                 self.trainingNetwork.saveParams(name)
