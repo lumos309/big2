@@ -56,7 +56,9 @@ class PPONetwork(object):
         z0in = tf.compat.v1.reduce_sum(el0in, axis=-1, keep_dims = True)
         p0in = el0in / z0in
         onehot = tf.one_hot(a0, availPi.get_shape().as_list()[-1])
+        # compute the negative log probability of the actions
         neglogpac = -tf.compat.v1.log(tf.compat.v1.reduce_sum(tf.multiply(p0in, onehot), axis=-1))
+    
         
         def step(obs, availAcs):
             a, v, neglogp = sess.run([a0, vf, neglogpac], {X:obs, available_moves:availAcs})

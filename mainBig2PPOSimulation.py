@@ -155,9 +155,12 @@ class big2PPOSimulation(object):
             mb_values.append(values)
             mb_neglogpacs.append(neglogpacs)
             mb_dones.append(list(dones))
-            #now back assign rewards if state is terminal
+
+            # now back assign rewards if state is terminal
             toAppendRewards = np.zeros((self.nGames,))
             mb_rewards.append(toAppendRewards)
+
+            # loop over the games, and see if they are done
             for i in range(self.nGames):
                 if dones[i] == True:
                     reward = rewards[i]
@@ -172,6 +175,8 @@ class big2PPOSimulation(object):
                     self.gamesDone += 1
                     if self.gamesDone % 1000 == 0:
                         print("Game %d finished. Lasted %d turns" % (self.gamesDone, infos[i]['numTurns']))
+
+        # just assign
         self.prevObs = mb_obs[endLength:]
         self.prevGos = mb_pGos[endLength:]
         self.prevRewards = mb_rewards[endLength:]
