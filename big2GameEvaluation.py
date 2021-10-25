@@ -70,6 +70,12 @@ class big2Game:
             whoHas3D = 3
         else:
             whoHas3D = 4
+
+        # set player 1 to always be starting player (i.e., with 3D)
+        if whoHas3D != 1:
+            self.currentHands[1], self.currentHands[whoHas3D] = self.currentHands[whoHas3D], self.currentHands[1] 
+        whoHas3D = 1
+
         self.currentHands[whoHas3D] = self.currentHands[whoHas3D][1:]
         self.cardsPlayed[0] = 1
         self.goIndex = 1
@@ -547,10 +553,19 @@ class big2Game:
         return self.playersGo, self.neuralNetworkInputs[self.playersGo].reshape(1,412), convertAvailableActions(self.returnAvailableActions()).reshape(1,1695)
 
     def getCurrentStateInputV2(self):
-        # replace played state for cards 37-52 with cards 1-44
+        # replace played state for cards 37-52 with cards 8-52
         nnInputs = self.neuralNetworkInputs[self.playersGo]
         ind = PLAYER_HAND_STATE_SIZE + 27*3
         cardsPlayed = self.cardsPlayed[8:52]
+
+        nnInputs = np.concatenate((nnInputs[:ind], cardsPlayed, nnInputs[ind+16:]))
+        return self.playersGo, nnInputs.reshape(1,440), convertAvailableActions(self.returnAvailableActions()).reshape(1,1695)
+    
+    def getCurrentStateInputV3(self):
+        # replace played state for cards 37-52 with cards 1-44
+        nnInputs = self.neuralNetworkInputs[self.playersGo]
+        ind = PLAYER_HAND_STATE_SIZE + 27*3
+        cardsPlayed = self.cardsPlayed[:44]
 
         nnInputs = np.concatenate((nnInputs[:ind], cardsPlayed, nnInputs[ind+16:]))
         return self.playersGo, nnInputs.reshape(1,440), convertAvailableActions(self.returnAvailableActions()).reshape(1,1695)
@@ -583,6 +598,9 @@ def worker(remote, parent_remote):
             remote.send((pGo, cState, availAcs))
         elif cmd == 'getCurrStateInputV2':
             pGo, cState, availAcs = game.getCurrentStateInputV2()
+            remote.send((pGo, cState, availAcs))
+        elif cmd == 'getCurrStateInputV3':
+            pGo, cState, availAcs = game.getCurrentStateInputV3()
             remote.send((pGo, cState, availAcs))
         elif cmd == 'close':
             remote.close()
@@ -637,8 +655,26 @@ class vectorizedBig2Games(object):
         return self.currStates_wait()
     
     def getCurrStatesInputV2(self):
-        self.currStates_async("InputV2")
+        self.currStates_async(version="InputV2")
         return self.currStates_wait()
+    
+    def getCurrStatesInputV3(self):
+        self.currStates_async(version="InputV3")
+        return self.currStates_wait()
+
+    def reset_async(self):
+        for remote in self.remotes:
+            remote.send(('reset', None))
+        self.waiting = True
+    
+    def reset_wait(self):
+        results = [remote.recv() for remote in self.remotes]
+        self.waiting = False
+
+    def reset(self):
+        self.reset_async()
+        return self.reset_wait()
+        
     
     def close(self):
         if self.closed:

@@ -27,7 +27,7 @@ class big2PPOSimulation(object):
         self.trainingModel = PPOModel(sess, self.trainingNetwork, inpDim, 1695, ent_coef, vf_coef, max_grad_norm)
         self.startingUpdate = startingUpdate
         if startingUpdate > 0:
-            self.trainingNetwork.loadParams(joblib.load('inputV2Parameters' + str(startingUpdate)))
+            self.trainingNetwork.loadParams(joblib.load('inputV5Parameters' + str(startingUpdate)))
         self.sessConfig = sessConfig
         
         #player networks which choose decisions - allowing for later on experimenting with playing against older versions of the network (so decisions they make are not trained on).
@@ -373,7 +373,7 @@ class big2PPOSimulation(object):
                 self.trainingNetwork.loadParams(currParams)
             
             if update % self.saveEvery == 0:
-                name = "inputV2Parameters" + str(update)
+                name = "inputV5Parameters" + str(update)
                 self.trainingNetwork.saveParams(name)
                 #joblib.dump(self.losses,"losses.pkl")
                 #joblib.dump(self.epInfos, "epInfos.pkl")
@@ -435,7 +435,7 @@ if __name__ == "__main__":
     with tf.compat.v1.Session(config=config) as sess:
         mainSim = big2PPOSimulation(sess, 
             sessConfig=config, 
-            startingUpdate=143750,
+            startingUpdate=0,
             osStartingUpdate=0,
             nGames=64, 
             nSteps=20, 

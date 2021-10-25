@@ -435,7 +435,7 @@ if __name__ == "__main__":
     with tf.compat.v1.Session(config=config) as sess:
         mainSim = big2PPOSimulation(sess, 
             sessConfig=config, 
-            startingUpdate=0,
+            startingUpdate=105000,
             osStartingUpdate=0,
             nGames=64, 
             nSteps=20, 

@@ -1,12 +1,14 @@
 #main big2PPOSimulation class
 
 import numpy as np
+from tensorflow.python.ops.gen_batch_ops import batch
 from PPONetwork import PPONetwork, PPOModel
-from big2Game import vectorizedBig2Games
+from big2GameHandGeneration import vectorizedBig2Games
 import tensorflow as tf
 import joblib
 import copy
-
+import handPredictionModel
+import oneStepModel
 
 #taken directly from baselines implementation - reshape minibatch in preparation for training.
 def sf01(arr):
@@ -27,7 +29,7 @@ class big2PPOSimulation(object):
         self.trainingModel = PPOModel(sess, self.trainingNetwork, inpDim, 1695, ent_coef, vf_coef, max_grad_norm)
         self.startingUpdate = startingUpdate
         if startingUpdate > 0:
-            self.trainingNetwork.loadParams(joblib.load('modelParameters' + str(startingUpdate)))
+            self.trainingNetwork.loadParams(joblib.load('baselineV2Parameters' + str(startingUpdate)))
         self.sessConfig = sessConfig
         
         #player networks which choose decisions - allowing for later on experimenting with playing against older versions of the network (so decisions they make are not trained on).
@@ -93,16 +95,16 @@ class big2PPOSimulation(object):
         self.osOpponent = PPONetwork(self.osSess, inpDim, 1695, "osNet")
         self.osOpponentPool = []
         self.osQualityScores = []
-        if osStartingUpdate > 0:
-            for i in range(osStartingUpdate, startingUpdate, saveEvery):
-                self.osOpponentPool.append("modelParameters" + str(i))
-                self.osQualityScores.append(0.)
+        # if osStartingUpdate > 0:
+        #     for i in range(osStartingUpdate, startingUpdate, saveEvery):
+        #         self.osOpponentPool.append("modelParameters" + str(i))
+        #         self.osQualityScores.append(0.)
         
         self.osOpponentIndex = 0
         self.osPlayerNumbers = self.osVectorizedGame.getCurrStates()[0]
         self.osCurrOppScore = 0.
         self.osCurrOppGamesPlayed = 0
-        
+
     # update quality score when past opponent loses a playout 
     def updatePastOpponentScore(self, score):
         # update score in proportion to how badly the opponent performed, i.e. the score
@@ -136,6 +138,7 @@ class big2PPOSimulation(object):
         return num if num <= 4 else num % 4
         
         
+    
     def run(self):
         #run vectorized games for nSteps and generate mini batch to train on.
         mb_obs, mb_pGos, mb_actions, mb_values, mb_neglogpacs, mb_rewards, mb_dones, mb_availAcs = [], [], [], [], [], [], [], []
@@ -154,12 +157,14 @@ class big2PPOSimulation(object):
             endLength = self.nSteps-4
         # print('len prevObs: %d' % (len(self.prevObs)))
         # print('endlength: %d' % (endLength))
-        
+
         for _ in range(self.nSteps):
             currGos, currStates, currAvailAcs = self.vectorizedGame.getCurrStates()
             currStates = np.squeeze(currStates)
             currAvailAcs = np.squeeze(currAvailAcs)
             currGos = np.squeeze(currGos)
+            currHands = self.vectorizedGame.getCurrHands()
+            
             actions, values, neglogpacs = self.trainingNetwork.step(currStates, currAvailAcs)
             rewards, dones, infos = self.vectorizedGame.step(actions)
             mb_obs.append(currStates.copy())
@@ -219,6 +224,7 @@ class big2PPOSimulation(object):
         mb_returns = mb_advs + mb_values
         
         return map(sf01, (mb_obs, mb_availAcs, mb_returns, mb_actions, mb_values, mb_neglogpacs))
+    
     
     def runOs(self):
         assert self.nSteps % 4 == 0
@@ -343,7 +349,6 @@ class big2PPOSimulation(object):
             cliprangenow = self.clipRange * alpha
             
             states, availAcs, returns, actions, values, neglogpacs = self.runOs() if isTrainingWithOs else self.run()
-            # states, availAcs, returns, actions, values, neglogpacs = self.run()
             
             batchSize = states.shape[0]
             self.totTrainingSteps += batchSize
@@ -373,7 +378,7 @@ class big2PPOSimulation(object):
                 self.trainingNetwork.loadParams(currParams)
             
             if update % self.saveEvery == 0:
-                name = "modelParameters" + str(update)
+                name = "baselineV2Parameters" + str(update)
                 self.trainingNetwork.saveParams(name)
                 #joblib.dump(self.losses,"losses.pkl")
                 #joblib.dump(self.epInfos, "epInfos.pkl")
@@ -435,13 +440,13 @@ if __name__ == "__main__":
     with tf.compat.v1.Session(config=config) as sess:
         mainSim = big2PPOSimulation(sess, 
             sessConfig=config, 
-            startingUpdate=90500,
+            startingUpdate=0,
             osStartingUpdate=0,
             nGames=64, 
             nSteps=20, 
             learningRate = 0.00025, 
             clipRange = 0.0, 
-            saveEvery=500,
+            saveEvery=250,
             # opponent sampling parameters
             oppSamplingRate = 0.0,
             eta = 0.1,
