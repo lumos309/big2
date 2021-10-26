@@ -11,20 +11,25 @@ class OneStep(tf.keras.Model):
         self.model = model
     
     @tf.function
-    def predict(self, inputs, states_l1=None, states_l2=None):
+    def predict(self, inputs, states=None):
         inputs = tf.expand_dims(tf.expand_dims(inputs, axis=0), axis=0)
-        predicted_logits, c1, h1, c2, h2= self.model(x=inputs, lstm_1_states=states_l1, lstm_2_states=states_l2, return_state=True, training=False)
+        predicted_logits, c1, h1, c2, h2= self.model(x=inputs, lstm_1_states=states[0] if states != None else None, lstm_2_states=states[1] if states != None else None, return_state=True, training=False)
         predicted_logits = predicted_logits[:, -1, :]
 
-        return predicted_logits, [c1, h1], [c2, h2]
+        return predicted_logits, [[c1, h1], [c2, h2]]
     
     @tf.function
-    def predictBatch(self, inputs, states_l1=None, states_l2=None):
+    def predictBatch(self, inputs, states=None):
         inputs = tf.cast(tf.expand_dims(inputs, axis=1), tf.float32)
-        predicted_logits, c1, h1, c2, h2 = self.model(x=inputs, lstm_1_states=states_l1, lstm_2_states=states_l2, return_state=True, training=False)
+        predicted_logits, c1, h1, c2, h2 = self.model(x=inputs, lstm_1_states=states[0] if states != None else None, lstm_2_states=states[1] if states != None else None, return_state=True, training=False)
         predicted_logits = predicted_logits[:, -1, :]
 
-        return predicted_logits, [c1, h1], [c2, h2]
+        return predicted_logits, [[c1, h1], [c2, h2]]
+    
+    @tf.function
+    def getInitialState(self, batchSize):
+        c1, h1, c2, h2 = self.model.getInitialState(batchSize)
+        return [[c1, h1], [c2, h2]]
 
 if __name__ == '__main__':
     handPredictionModel = handPredictionModel.HandPredictionModel()

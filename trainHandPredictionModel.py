@@ -36,7 +36,7 @@ dataset = (
 
 print(dataset)
 
-EPOCHS = 100
+EPOCHS = 1
 history = model.fit(dataset, epochs=EPOCHS)
 tf.saved_model.save(model, 'handPredictionModel')
 model.save_weights('handPredictionModelWeights')

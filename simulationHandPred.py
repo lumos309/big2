@@ -94,7 +94,12 @@ class big2PPOSimulation(object):
         self.hpm = handPredictionModel.HandPredictionModel()
         self.hpm.load_weights('handPredictionModelWeights')
         self.handPredictionModel = oneStepModel.OneStep(self.hpm)
-        self.handPredictionModelState = None
+        self.initialHandPredictionModelState = tf.zeros((2, nGames, 2, 512))
+        self.handPredictionModelState = tf.Variable(initial_value=self.handPredictionModel.getInitialState(self.nGames), name="rnnModelState")
+        # self.isInitialState = True
+        # print("INTIIAL STATE")
+        # print(self.handPredictionModel.getInitialState(batchSize=self.nGames))
+        # self.emptyVariable = tf.Variable(initial_value=[])
         # self.handPredictionSess = tf.compat.v1.keras.backend.get_session() # tf.compat.v1.Session(config=self.sessConfig())
         # handPredictionModelInputs = tf.compat.v1.placeholder(tf.float32, (self.nGames, 211), 'handPredictionModelInputs')
         #self.handPredictionModelOutputs = self.handPredictionModel.predictBatch(handPredictionModelInputs)
@@ -111,9 +116,21 @@ class big2PPOSimulation(object):
         # with tf.compat.v1.variable_scope('handPrediction'):
         handPredictionModelInputs = tf.compat.v1.placeholder(tf.float32, (self.nGames, 211), 'handPredictionModelInputs')
         handPredictions, handPredictionModelState = self.handPredictionModel.predictBatch(handPredictionModelInputs, self.handPredictionModelState)
+        updateModelState = self.handPredictionModelState.assign(handPredictionModelState)
+        
         X1 = tf.compat.v1.placeholder(tf.float32, (self.nGames, 412), 'currStatesInput')
         networkInput = tf.concat([handPredictions, X1], axis = 1)
         # handPredictionModelState = handPredictionOutputs[1]
+
+
+        # donesPlaceholder = tf.compat.v1.placeholder(bool, (self.nGames), 'donesPlaceholder')
+        # mask = getStatesMask(donesPlaceholder)
+        # statesToKeep = list(map((lambda x: 0 if x else 1), donesPlaceholder))
+        #states9ToKeepMask = tf.sparse.SparseTensor(indices=[[0, 0, i,]])
+        ops1 = [(self.handPredictionModelState[0, 0, i].assign(tf.zeros(512,))) for i in range(self.nGames)]
+        ops2 = [(self.handPredictionModelState[0, 1, i].assign(tf.zeros(512,))) for i in range(self.nGames)]
+        ops3 = [(self.handPredictionModelState[1, 0, i].assign(tf.zeros(512,))) for i in range(self.nGames)]
+        ops4 = [(self.handPredictionModelState[1, 1, i].assign(tf.zeros(512,))) for i in range(self.nGames)]
         
         def run():
             #run vectorized games for nSteps and generate mini batch to train on.
@@ -144,10 +161,16 @@ class big2PPOSimulation(object):
                 # print(len(currHands))
                 # print(len(currHands[0]))
                 # with tf.compat.v1.variable_scope('handPrediction'):
-                sess.run([handPredictions, handPredictionModelState, networkInput], {handPredictionModelInputs: currHands, X1: currStates})
-                print(handPredictionModelState[0])
-                print(handPredictionModelState[0][0])
-                print(handPredictionModelState[0][0].eval({handPredictionModelInputs: currHands, X1: currStates}))
+                sess.run([handPredictions, handPredictionModelState, networkInput, updateModelState], {handPredictionModelInputs: currHands, X1: currStates})
+                # a = [[t.eval({handPredictionModelInputs: currHands, X1: currStates}) for t in s] for s in handPredictionModelState]
+                # self.isInitialState = False
+                # print(self.handPredictionModelState)
+                # self.handPredictionModelState.assign(handPredictionModelState)
+                # print(self.handPredictionModelState[0])
+                # print(self.handPredictionModelState[0][0])
+                # print(self.handPredictionModelState[0][0][0])
+                # print(self.handPredictionModelState[0][0][0].eval({handPredictionModelInputs: currHands, X1: currStates}))
+                oldCs = currStates
                 currStates = networkInput.eval({handPredictionModelInputs: currHands, X1: currStates})
                 #networkInput = tf.concat([tf.cast(currStates, tf.float32), handPredictions], axis=1)
                                 
@@ -163,10 +186,10 @@ class big2PPOSimulation(object):
                 #now back assign rewards if state is terminal
                 toAppendRewards = np.zeros((self.nGames,))
                 mb_rewards.append(toAppendRewards)
+                # sess.run(mask, {donesPlaceholder: dones})
                 for i in range(self.nGames):
                     if dones[i] == True:
-                        self.handPredictionModelState[0][i] = None
-                        self.handPredictionModelState[1][i] = None
+                        sess.run([ops1[i], ops2[i], ops3[i], ops4[i]])
                         reward = rewards[i]
                         mb_rewards[-1][i] = reward[mb_pGos[-1][i]-1] / self.rewardNormalization
                         mb_rewards[-2][i] = reward[mb_pGos[-2][i]-1] / self.rewardNormalization
@@ -214,7 +237,7 @@ class big2PPOSimulation(object):
             return map(sf01, (mb_obs, mb_availAcs, mb_returns, mb_actions, mb_values, mb_neglogpacs))
 
         for update in range(self.startingUpdate + 1, nUpdates):
-            if (update + 1) % 100 == 0:
+            if (update + 1) % 1 == 0:
                 print("Last 100 updates (at update %d): %f" % (update + 1, time.time()-startTime))
                 startTime = time.time()
 
@@ -286,7 +309,7 @@ if __name__ == "__main__":
             sessConfig=config, 
             startingUpdate=0,
             osStartingUpdate=0,
-            nGames=2, 
+            nGames=64, 
             nSteps=20, 
             learningRate = 0.00025, 
             clipRange = 0.0, 
