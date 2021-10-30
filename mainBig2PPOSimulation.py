@@ -94,7 +94,9 @@ class big2PPOSimulation(object):
             currAvailAcs = np.squeeze(currAvailAcs)
             currGos = np.squeeze(currGos)
             actions, values, neglogpacs = self.trainingNetwork.step(currStates, currAvailAcs)
+            print('actions', actions)
             rewards, dones, infos = self.vectorizedGame.step(actions)
+            print('results', rewards[0], dones[0], infos[0])
             mb_obs.append(currStates.copy())
             mb_pGos.append(currGos)
             mb_availAcs.append(currAvailAcs.copy())
@@ -107,6 +109,7 @@ class big2PPOSimulation(object):
             mb_rewards.append(toAppendRewards)
             for i in range(self.nGames):
                 if dones[i] == True:
+                    print('finished game' , dones[i], rewards[i])
                     reward = rewards[i]
                     mb_rewards[-1][i] = reward[mb_pGos[-1][i]-1] / self.rewardNormalization
                     mb_rewards[-2][i] = reward[mb_pGos[-2][i]-1] / self.rewardNormalization
@@ -117,7 +120,7 @@ class big2PPOSimulation(object):
                     mb_dones[-4][i] = True
                     self.epInfos.append(infos[i])
                     self.gamesDone += 1
-                    print("Game %d finished. Lasted %d turns" % (self.gamesDone, infos[i]['numTurns']))
+                    print("Game %d finished.    Lasted %d turns" % (self.gamesDone, infos[i]['numTurns']))
         self.prevObs = mb_obs[endLength:]
         self.prevGos = mb_pGos[endLength:]
         self.prevRewards = mb_rewards[endLength:]
@@ -150,7 +153,7 @@ class big2PPOSimulation(object):
         
         return map(sf01, (mb_obs, mb_availAcs, mb_returns, mb_actions, mb_values, mb_neglogpacs))
         
-    def train(self, nTotalSteps):
+    def train(self, nTotalSteps):   
 
         nUpdates = nTotalSteps // (self.nGames * self.nSteps)
         

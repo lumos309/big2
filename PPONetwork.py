@@ -3,6 +3,7 @@ import numpy as np
 #from stable_baselines.a2c.run_atari import fc
 import joblib
 
+# this functoin is to initialize the neural network
 def ortho_init(scale=1.0):
     def _ortho_init(shape, dtype, partition_info=None):
         #lasagne ortho init for tf
@@ -20,7 +21,8 @@ def ortho_init(scale=1.0):
         return (scale * q[:shape[0], :shape[1]]).astype(np.float32)
     return _ortho_init
 
-def fc(x, scope, nh, *, init_scale=1.0, init_bias=0.0):
+# fully connected layer definition
+def fully_connected(x, scope, nh, *, init_scale=1.0, init_bias=0.0):
     with tf.compat.v1.variable_scope(scope):
         nin = x.get_shape()[1]#.value
         w = tf.compat.v1.get_variable("w", [nin, nh], initializer=ortho_init(init_scale))
@@ -34,17 +36,18 @@ class PPONetwork(object):
         self.act_dim = act_dim
         self.name = name
         
+        # initialize network arhcitecture
         with tf.compat.v1.variable_scope(name):
             X = tf.compat.v1.placeholder(tf.float32, [None, obs_dim], name="input")
             available_moves = tf.compat.v1.placeholder(tf.float32, [None, act_dim], name="availableActions")
             #available_moves takes form [0, 0, -inf, 0, -inf...], 0 if action is available, -inf if not.
             activation = tf.nn.relu
-            h1 = activation(fc(X,'fc1', nh=512, init_scale=np.sqrt(2)))
-            h2 = activation(fc(h1,'fc2', nh=256, init_scale=np.sqrt(2)))
-            pi = fc(h2,'pi', act_dim, init_scale = 0.01)
+            h1 = activation(fully_connected(X,'fc1', nh=512, init_scale=np.sqrt(2)))
+            h2 = activation(fully_connected(h1,'fc2', nh=256, init_scale=np.sqrt(2)))
+            pi = fully_connected(h2,'pi', act_dim, init_scale = 0.01)
             #value function - share layer h1
-            h3 = activation(fc(h1,'fc3', nh=256, init_scale=np.sqrt(2)))
-            vf = fc(h3, 'vf', 1)[:,0]
+            h3 = activation(fully_connected(h1,'fc3', nh=256, init_scale=np.sqrt(2)))
+            value_function = fully_connected(h3, 'vf', 1)[:,0]
         availPi = tf.add(pi, available_moves)    
         
         def sample():
@@ -58,23 +61,29 @@ class PPONetwork(object):
         onehot = tf.one_hot(a0, availPi.get_shape().as_list()[-1])
         neglogpac = -tf.compat.v1.log(tf.compat.v1.reduce_sum(tf.multiply(p0in, onehot), axis=-1))
         
+
+        # obtain the actions taken, based on the policy learned
         def step(obs, availAcs):
-            a, v, neglogp = sess.run([a0, vf, neglogpac], {X:obs, available_moves:availAcs})
+            a, v, neglogp = sess.run([a0, value_function, neglogpac], {X:obs, available_moves:availAcs})
             return a, v, neglogp
-            
+        
+        # obtain the estimated value of the state
         def value(obs, availAcs):
-            return sess.run(vf, {X:obs, available_moves:availAcs})
+            return sess.run(value_function, {X:obs, available_moves:availAcs})
         
         self.availPi = availPi
         self.neglogpac = neglogpac
         self.X = X
         self.available_moves = available_moves
         self.pi = pi
-        self.vf = vf        
+        self.vf = value_function        
         self.step = step
         self.value = value
         self.params = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.TRAINABLE_VARIABLES, scope=self.name)
         
+
+
+        # Helper functions to get, load and save the model
         def getParams():
             return sess.run(self.params)
         
@@ -98,7 +107,7 @@ class PPONetwork(object):
         
 class PPOModel(object):
     
-    def __init__(self, sess, network, inpDim, actDim, ent_coef, vf_coef, max_grad_norm):
+    def __init__(self, sess, network, inpDim, actDim, hyperparameter_ent_coef, hyperparameter_vf_coef, max_grad_norm):
         
         self.network = network
         
@@ -125,21 +134,25 @@ class PPOModel(object):
         self.neglogp = neglogp
         
         #define loss functions
-        #entropy loss
+
+        # entropy loss
         entropyLoss = tf.compat.v1.reduce_mean(entropy)
-        #value loss
+
+        # value loss
         v_pred = network.vf
         v_pred_clipped = OLD_VAL_PRED + tf.clip_by_value(v_pred - OLD_VAL_PRED, -CLIP_RANGE, CLIP_RANGE)
         vf_losses1 = tf.square(v_pred - RETURNS)
         vf_losses2 = tf.square(v_pred_clipped - RETURNS)
         vf_loss = 0.5 * tf.compat.v1.reduce_mean(tf.maximum(vf_losses1, vf_losses2))
-        #policy gradient loss
+
+        # policy gradient loss
         prob_ratio = tf.exp(OLD_NEG_LOG_PROB_ACTIONS - neglogpac)
         pg_losses1 = -ADVANTAGES * prob_ratio
         pg_losses2 = -ADVANTAGES * tf.clip_by_value(prob_ratio, 1.0-CLIP_RANGE, 1.0+CLIP_RANGE)
         pg_loss = tf.compat.v1.reduce_mean(tf.maximum(pg_losses1, pg_losses2))
-        #total loss
-        loss = pg_loss + vf_coef*vf_loss - ent_coef*entropyLoss
+
+        # total loss
+        loss = pg_loss + hyperparameter_vf_coef*vf_loss - hyperparameter_ent_coef*entropyLoss
         
         params = network.params
         grads = tf.gradients(ys=loss, xs=params)

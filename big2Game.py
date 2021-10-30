@@ -509,14 +509,15 @@ class big2Game:
         if self.gameOver == 0:
             reward = 0
             done = False
-            info = None
+            info = self.getCurrentState()
         else:
             reward = self.rewards
             done = True
             info = {}
             info['numTurns'] = self.goCounter
             info['rewards'] = self.rewards
-            #what else is worth monitoring?            
+            #what else is worth monitoring?         
+            info = self.getCurrentState()   
             self.reset()
         return reward, done, info
     
@@ -567,6 +568,20 @@ class vectorizedBig2Games(object):
         for remote, action in zip(self.remotes, actions):
             remote.send(('step', action))
         self.waiting = True
+
+    def reset_async(self):
+        for remote in self.remotes:
+            remote.send(('reset', None))
+        self.waiting = True
+    def reset(self):
+        self.reset_async()
+        return self.reset_wait()
+    def reset_wait(self):
+        print(len(self.remotes))
+        results = [remote.recv() for remote in self.remotes]
+        self.waiting = False
+        print(np.array(results).shape)
+        return results
         
     def step_wait(self):
         results = [remote.recv() for remote in self.remotes]
