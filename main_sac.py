@@ -1,8 +1,8 @@
 import numpy as np
 from sac_torch import Agent
-
 from big2Game import vectorizedBig2Games
-
+import numpy as np
+import sys
 
 #taken directly from baselines implementation - reshape minibatch in preparation for training.
 def sf01(arr):
@@ -16,16 +16,16 @@ def sf01(arr):
 
 class big2PPOSimulation(object):
     
-    def __init__(self,  *, inpDim = 412, nGames = 8, nSteps = 20, nMiniBatches = 4, nOptEpochs = 5, lam = 0.95, gamma = 0.995, ent_coef = 0.01, vf_coef = 0.5, max_grad_norm = 0.5, minLearningRate = 0.000001, learningRate, clipRange, saveEvery = 500):
+    def __init__(self, *, inpDim = 412, nGames = 4, nSteps = 100, nMiniBatches = 4, nOptEpochs = 5, lam = 0.95, gamma = 0.995, ent_coef = 0.01, vf_coef = 0.5, max_grad_norm = 0.5, minLearningRate = 0.000001, learningRate, clipRange, saveEvery = 500):
+         
         available_action_space =  1695
         observation_space = [412]
+        
         #environment
         self.vectorizedGame = vectorizedBig2Games(nGames)
         
         #network/model for training
-        self.trainingNetwork =  Agent(input_dims=observation_space, env=self.vectorizedGame,
-            n_actions=available_action_space)
-        # self.trainingModel = PPOModel(sess, self.trainingNetwork, inpDim, 1695, ent_coef, vf_coef, max_grad_norm)
+        self.trainingNetwork =  Agent(input_dims=observation_space, env=self.vectorizedGame, n_actions=available_action_space)
         
         #player networks which choose decisions - allowing for later on experimenting with playing against older versions of the network (so decisions they make are not trained on).
         self.playerNetworks = {}
@@ -33,11 +33,7 @@ class big2PPOSimulation(object):
         #for now each player uses the same (up to date) network to make it's decisions.
         self.playerNetworks[1] = self.playerNetworks[2] = self.playerNetworks[3] = self.playerNetworks[4] = self.trainingNetwork
         self.trainOnPlayer = [True, True, True, True]
-        
-        # tf.compat.v1.global_variables_initializer().run(session=sess)
-        
-       
-        
+
         #params
         self.nGames = nGames
         self.inpDim = inpDim
@@ -64,7 +60,6 @@ class big2PPOSimulation(object):
         self.prevActions = []
         self.prevValues = []
         self.prevDones = []
-
         
         #episode/training information
         self.totTrainingSteps = 0
@@ -73,12 +68,15 @@ class big2PPOSimulation(object):
         self.losses = []
         
     def run(self):
+        mb_individual_rewards = []
         #run vectorized games for nSteps and generate mini batch to train on.
         mb_obs, mb_pGos, mb_actions,  mb_neglogpacs, mb_rewards, mb_dones, mb_availAcs, mb_next_obs = [], [], [], [], [], [], [], []
         for i in range(len(self.prevObs)):
             mb_obs.append(self.prevObs[i])
             mb_pGos.append(self.prevGos[i])
             mb_actions.append(self.prevActions[i])
+            # mb_values.append(self.prevValues[i])
+            mb_neglogpacs.append(self.prevNeglogpacs[i])
             mb_rewards.append(self.prevRewards[i])
             mb_dones.append(self.prevDones[i])
             mb_availAcs.append(self.prevAvailAcs[i])
@@ -94,32 +92,35 @@ class big2PPOSimulation(object):
             
             # generate observatios from curstates and curavailacs
             neglogpacs = self.trainingNetwork.choose_action(currStates)
-            # print('neglogpacs' , neglogpacs.shape)
-            # print('currAvailAcs', currAvailAcs.shape)
+            
             # add probabilities to the available actions, to rule out impossible actions
             possible_actions_probablities = np.add(neglogpacs,  currAvailAcs)
-            # print('possible_actions_probablities' , possible_actions_probablities.shape)
             actions = np.argmax(possible_actions_probablities, axis=1)
             print('actions taken: ' , actions)
+            
             # step in the environment
             rewards, dones, infos = self.vectorizedGame.step(actions)
-            # print('results', rewards[0], dones[0], infos[0])
+            # print('rewards', rewards)
+            
+            # add to the previous observations
+            
+            
+            # if (dones[0] == True):
+            #     print('results', rewards[0], dones[0], infos[0])
             mb_obs.append(currStates.copy())
             mb_pGos.append(currGos)
             mb_availAcs.append(currAvailAcs.copy())
             mb_actions.append(actions)
-
             mb_neglogpacs.append(neglogpacs)
             mb_dones.append(list(dones))
+            mb_rewards.append(np.array(rewards))
+            currGos, currStates, currAvailAcs = self.vectorizedGame.getCurrStates()
+            # print('currGos', currGos[0])
+            mb_next_obs.append(currStates.copy())
+            
             #now back assign rewards if state is terminal
             toAppendRewards = np.zeros((self.nGames,))
             mb_rewards.append(toAppendRewards)
-            
-            
-            
-            currGos, currStates, currAvailAcs = self.vectorizedGame.getCurrStates()
-            mb_next_obs.append(currStates.copy().squeeze())
-        
             for i in range(self.nGames):
                 if dones[i] == True:
                     print('finished game' , dones[i], rewards[i])
@@ -133,36 +134,40 @@ class big2PPOSimulation(object):
                     mb_dones[-4][i] = True
                     self.epInfos.append(infos[i])
                     self.gamesDone += 1
-                    # print("Game %d finished.    Lasted %d turns" % (self.gamesDone, infos[i]['numTurns']))
+                    # print("Game %d finished.    1Lasted %d turns" % (self.gamesDone, infos[i]['numTurns']))
+            
+            
         self.prevObs = mb_obs[endLength:]
         self.prevGos = mb_pGos[endLength:]
         self.prevRewards = mb_rewards[endLength:]
         self.prevActions = mb_actions[endLength:]
+        # self.prevValues = mb_values[endLength:]
         self.prevDones = mb_dones[endLength:]
         self.prevNeglogpacs = mb_neglogpacs[endLength:]
         self.prevAvailAcs = mb_availAcs[endLength:]
-        mb_obs = np.asarray(mb_obs, dtype=np.float32)[:endLength]
-        mb_next_obs = np.asarray(mb_next_obs, dtype=np.float32)[:endLength]
+            # print('rewards shape',  np.asarray(mb_rewards, dtype=np.float32))
+        mb_individual_rewards = np.zeros((self.nSteps, self.nGames))    
+        print('mb_rewards', mb_rewards)
+        print('mb_rewards', np.asarray(mb_rewards, dtype=np.float32).shape)
+        for i in range(self.nGames):
+            for j in range(self.nSteps):
+                # mb_rewards[j][i] = mb_rewards[0][i][currGos[i]-1]
+                # print('mb_rewards', mb_rewards[0][i])
+                # print('asdasd',  mb_rewards[0][i][currGos[i]-1])
+                # print('currgos', currGos[i])
+                mb_individual_rewards[j][i] =  np.max(mb_rewards[j][i][currGos[i]-1])
+                # mb_individual_rewards[j][i] =  mb_rewards[j][i][currGos[i]-1]
+                
+        mb_obs =  np.asarray(mb_obs, dtype=np.float32)[:endLength]
+        mb_availAcs =  np.asarray(mb_availAcs, dtype=np.float32)[:endLength]
+        # mb_rewards =  np.asarray(mb_rewards, dtype=np.float32)
+        mb_actions =   np.asarray(mb_actions, dtype=np.float32)[:endLength]
+        mb_next_obs =  np.asarray(mb_next_obs, dtype=np.float32)
+        mb_dones =  np.asarray(mb_dones, dtype=np.float32)[:endLength]
+        mb_individual_rewards =  np.asarray(mb_individual_rewards, dtype=np.float32)[:endLength]
 
-        mb_availAcs = np.asarray(mb_availAcs, dtype=np.float32)[:endLength]
-        mb_rewards = np.asarray(mb_rewards, dtype=np.float32)[:endLength]
-        mb_actions = np.asarray(mb_actions, dtype=np.float32)[:endLength]
-        mb_dones = np.asarray(mb_dones, dtype=np.bool)
-        #discount/bootstrap value function with generalized advantage estimation:
-        mb_returns = np.zeros_like(mb_rewards)
-        # mb_advs = np.zeros_like(mb_rewards)
-        # for k in range(4):
-        #     lastgaelam = 0
-        #     for t in reversed(range(k, endLength, 4)):
-        #         nextNonTerminal = 1.0 - mb_dones[t]
-                # nextValues = mb_values[t+4]
-                # delta = mb_rewards[t] + self.gamma * nextValues * nextNonTerminal - mb_values[t]
-                # mb_advs[t] = lastgaelam = delta + self.gamma * self.lam * nextNonTerminal * lastgaelam
-        
-        #mb_dones = mb_dones[:endLength]
-        # mb_returns = mb_advs + mb_values
-       
-        return map(sf01, (mb_obs, mb_availAcs, mb_returns, mb_actions, mb_next_obs, mb_dones))
+        # print('mb_rewards', mb_rewards)
+        return map(sf01, (mb_obs, mb_availAcs, mb_individual_rewards, mb_actions, mb_next_obs, mb_dones))
         
     def train(self, nTotalSteps):   
 
@@ -234,23 +239,12 @@ class big2PPOSimulation(object):
         load_checkpoint = False
         for update in range(nUpdates):
             
-            # alpha = 1.0 - update/nUpdates
-            # lrnow = self.learningRate * alpha
-            # if lrnow < self.minLearningRate:
-            #     lrnow = self.minLearningRate
-            # cliprangenow = self.clipRange * alpha
-            
-            
             # get minibatch  
-            mb_obs, mb_availAcs, mb_returns, mb_actions, mb_next_obs, mb_dones = self.run()
-            
-            
-            print('minibatch', mb_obs.shape, mb_availAcs.shape, mb_returns.shape, mb_actions.shape, mb_next_obs.shape)
-            # score += reward
-            # print(mb_obs.shape[0], mb_obs[0].shape, mb_actions[0].shape, mb_returns[0].shape, mb_next_obs[0].shape, mb_dones[0].shape)
+            mb_obs, mb_availAcs, mb_rewards, mb_actions, mb_next_obs, mb_dones = self.run()
+            print('minibatch', mb_obs.shape, mb_availAcs.shape, mb_rewards.shape, mb_actions.shape, mb_next_obs.shape, mb_dones.shape)
+            # print('mb_returns', np.max(mb_rewards))
             for i in range(mb_obs.shape[0]):
-                
-                self.trainingNetwork.remember(mb_obs[i], mb_actions[i], mb_returns[i], mb_next_obs[i], mb_dones[i])
+                self.trainingNetwork.remember(mb_obs[i], mb_actions[i], mb_rewards[i], mb_next_obs[i], mb_dones[i])
             
             if not load_checkpoint:
                 self.trainingNetwork.learn()
@@ -301,12 +295,22 @@ class big2PPOSimulation(object):
     
 if __name__ == "__main__":
     import time
-    
+    old_stdout = sys.stdout
+
+    log_file = open("SAC.log","w")
+    sys.stdout = log_file
+
+
+
+
     # with tf.compat.v1.Session() as sess:
     mainSim = big2PPOSimulation( nGames=64, nSteps=20, learningRate = 0.00025, clipRange = 0.2)
     start = time.time()
     mainSim.train(1000000)
     end = time.time()
     print("Time Taken: %f" % (end-start))
+    sys.stdout = old_stdout
+
+    log_file.close()
         
         

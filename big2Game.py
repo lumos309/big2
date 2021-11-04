@@ -38,7 +38,7 @@ class handPlayed:
 class big2Game:
     def __init__(self):
         self.reset()
-        
+         
     def reset(self):
         shuffledDeck = np.random.permutation(52) + 1
         #hand out cards to each player
@@ -507,15 +507,15 @@ class big2Game:
         opt, nC = enumerateOptions.getOptionNC(action)
         self.updateGame(opt, nC)
         if self.gameOver == 0:
-            reward = 0
+            reward =  self.rewards
             done = False
             info = self.getCurrentState()
         else:
-            reward = self.rewards
+            reward = self.rewards ## return only the first player's reward
             done = True
             info = {}
             info['numTurns'] = self.goCounter
-            info['rewards'] = self.rewards
+            info['rewards'] = self.rewards 
             #what else is worth monitoring?         
             info = self.getCurrentState()   
             self.reset()

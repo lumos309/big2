@@ -79,7 +79,10 @@ class Agent():
 
         state, action, reward, new_state, done = \
                 self.memory.sample_buffer(self.batch_size)
-
+        reward = np.array(reward)
+        # print('state: ', state.shape, 'action: ', action.shape, 'reward: ', reward.shape, 'new_state: ', new_state.shape, 'done: ', done.shape)
+        print('reward: ', reward)
+        # print('reward: ', done)
         reward = T.tensor(reward, dtype=T.float).to(self.actor.device)
         done = T.tensor(done).to(self.actor.device)
         state_ = T.tensor(new_state, dtype=T.float).to(self.actor.device)
@@ -123,9 +126,10 @@ class Agent():
         q2_old_policy = self.critic_2.forward(state, action).view(-1)
         critic_1_loss = 0.5 * F.mse_loss(q1_old_policy, q_hat)
         critic_2_loss = 0.5 * F.mse_loss(q2_old_policy, q_hat)
-
+        print('q1_old_policy, q_hat', q1_old_policy, q_hat)
         critic_loss = critic_1_loss + critic_2_loss
         critic_loss.backward()
+        print('critic_loss: ', critic_loss)
         self.critic_1.optimizer.step()
         self.critic_2.optimizer.step()
 

@@ -10,7 +10,6 @@ observation_space = [412]
 if __name__ == '__main__':
     nGames = 1
     env = vectorizedBig2Games(nGames)
-
     agent = Agent(input_dims=observation_space, env=env,
             n_actions=available_action_space)
     n_games = 150

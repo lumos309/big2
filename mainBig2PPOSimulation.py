@@ -148,7 +148,7 @@ class big2PPOSimulation(object):
                 mb_advs[t] = lastgaelam = delta + self.gamma * self.lam * nextNonTerminal * lastgaelam
         
         mb_values = mb_values[:endLength]
-        #mb_dones = mb_dones[:endLength]
+        mb_dones = mb_dones[:endLength]
         mb_returns = mb_advs + mb_values
         
         return map(sf01, (mb_obs, mb_availAcs, mb_returns, mb_actions, mb_values, mb_neglogpacs))
