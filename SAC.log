@@ -4722,3 +4722,5 @@ q1_old_policy, q_hat tensor([nan, nan, nan, nan, nan, nan, nan, nan, nan, nan, n
        grad_fn=<AddBackward0>)
 critic_loss:  tensor(nan, grad_fn=<AddBackward0>)
 {"Agent": "type", "big2PPOSimulation": "type", "log_file": "TextIOWrapper", "mainSim": "big2PPOSimulation", "np": "module", "old_stdout": "TextIOWrapper", "os": "module", "sf01": "function", "start": "float", "sys": "module", "time": "module", "vectorizedBig2Games": "type"}
+{"Agent": "type", "big2PPOSimulation": "type", "log_file": "TextIOWrapper", "mainSim": "big2PPOSimulation", "np": "module", "old_stdout": "TextIOWrapper", "os": "module", "sf01": "function", "start": "float", "sys": "module", "time": "module", "vectorizedBig2Games": "type"}
+{"Agent": "type", "big2PPOSimulation": "type", "log_file": "TextIOWrapper", "mainSim": "big2PPOSimulation", "np": "module", "old_stdout": "TextIOWrapper", "os": "module", "sf01": "function", "start": "float", "sys": "module", "time": "module", "vectorizedBig2Games": "type"}
