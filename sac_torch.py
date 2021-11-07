@@ -1,6 +1,4 @@
-import os
 
-from numpy.core.arrayprint import printoptions
 import torch as T
 import torch.nn.functional as F
 import numpy as np
@@ -104,6 +102,7 @@ class Agent():
         value_target = critic_value - log_probs
         value_loss = 0.5 * F.mse_loss(value, value_target)
         print('value vs value target', value, value_target)
+        print('critic value', critic_value, 'log_probs', log_probs)
 
         value_loss.backward(retain_graph=True)
         self.value.optimizer.step()

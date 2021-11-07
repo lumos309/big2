@@ -127,9 +127,15 @@ class ActorNetwork(nn.Module):
 
         action = T.tanh(actions)*T.tensor(self.max_action).to(self.device)
         log_probs = probabilities.log_prob(actions)
+        print('action shape', action.shape)
+        print('log probs 1 ', log_probs, action)
         log_probs -= T.log(1-action.pow(2)+self.reparam_noise)
-        log_probs = log_probs.sum(1, keepdim=True)
+        print('log probs 2 ', log_probs, action)
 
+        log_probs = log_probs.sum(1, keepdim=True)
+        print('log probs 3 ', log_probs, action)
+
+        
         return action, log_probs
 
     def save_checkpoint(self):
