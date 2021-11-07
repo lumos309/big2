@@ -31,8 +31,7 @@ class Agent():
 
     def choose_action(self, observation):
         # observation = np.concatenate(observation).ravel().squeeze()
-        
-        # print('observation: ', observation)
+        print('observation: ', observation)
         state = T.Tensor([observation]).to(self.actor.device)
         actions, _ = self.actor.sample_normal(state, reparameterize=False)
 
@@ -75,13 +74,14 @@ class Agent():
 
     def learn(self):
         if self.memory.mem_cntr < self.batch_size:
+            print('memory %d is smaller than batchsize %d', (self.memory.mem_cntr , self.batch_size) )
             return
 
         state, action, reward, new_state, done = \
                 self.memory.sample_buffer(self.batch_size)
         reward = np.array(reward)
         # print('state: ', state.shape, 'action: ', action.shape, 'reward: ', reward.shape, 'new_state: ', new_state.shape, 'done: ', done.shape)
-        print('reward: ', reward)
+        print('rewards: ', reward)
         # print('reward: ', done)
         reward = T.tensor(reward, dtype=T.float).to(self.actor.device)
         done = T.tensor(done).to(self.actor.device)
@@ -103,6 +103,8 @@ class Agent():
         self.value.optimizer.zero_grad()
         value_target = critic_value - log_probs
         value_loss = 0.5 * F.mse_loss(value, value_target)
+        print('value vs value target', value, value_target)
+
         value_loss.backward(retain_graph=True)
         self.value.optimizer.step()
 
@@ -127,9 +129,10 @@ class Agent():
         critic_1_loss = 0.5 * F.mse_loss(q1_old_policy, q_hat)
         critic_2_loss = 0.5 * F.mse_loss(q2_old_policy, q_hat)
         print('q1_old_policy, q_hat', q1_old_policy, q_hat)
+        print('critic loss 1 and 2', critic_1_loss, critic_2_loss )
         critic_loss = critic_1_loss + critic_2_loss
         critic_loss.backward()
-        print('critic_loss: ', critic_loss)
+        print('critic_losesss: ', critic_loss)
         self.critic_1.optimizer.step()
         self.critic_2.optimizer.step()
 
