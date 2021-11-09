@@ -507,17 +507,15 @@ class big2Game:
         opt, nC = enumerateOptions.getOptionNC(action)
         self.updateGame(opt, nC)
         if self.gameOver == 0:
-            reward = 0
+            reward = self.rewards
             done = False
-            info = None
+            [_, info, _]  = self.getCurrentState()
         else:
             reward = self.rewards
             done = True
-            info = {}
-            info['numTurns'] = self.goCounter
-            info['rewards'] = self.rewards
-            #what else is worth monitoring?            
+            [_, info, _]  = self.getCurrentState()
             self.reset()
+        
         return reward, done, info
     
     def getCurrentState(self):

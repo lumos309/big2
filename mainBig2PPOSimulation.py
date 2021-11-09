@@ -94,6 +94,7 @@ class big2PPOSimulation(object):
             currAvailAcs = np.squeeze(currAvailAcs)
             currGos = np.squeeze(currGos)
             actions, values, neglogpacs = self.trainingNetwork.step(currStates, currAvailAcs)
+            print('actions', actions)
             rewards, dones, infos = self.vectorizedGame.step(actions)
             mb_obs.append(currStates.copy())
             mb_pGos.append(currGos)
@@ -202,7 +203,7 @@ if __name__ == "__main__":
     import time
     
     with tf.compat.v1.Session() as sess:
-        mainSim = big2PPOSimulation(sess, nGames=64, nSteps=20, learningRate = 0.00025, clipRange = 0.2)
+        mainSim = big2PPOSimulation(sess, nGames=2, nSteps=20, learningRate = 0.00025, clipRange = 0.2)
         start = time.time()
         mainSim.train(1000000)
         end = time.time()
